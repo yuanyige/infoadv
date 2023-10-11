@@ -8,23 +8,23 @@ from encoder import Encoder
 
 class Discriminator(torch.nn.Module):
     def __init__(self, encoder: Encoder, num_hidden: int, num_proj_hidden: int,
-                 tau: float = 0.5, dis_lambda = 0):
+                 tau: float = 0.5, dis_lambda = 0, dis_ub=False):
         super(Discriminator, self).__init__()
         self.encoder: Encoder = encoder
         self.dis_lambda = dis_lambda
-        self.use_ub = True if dis_lambda else False
+        self.use_ub = dis_ub
         self.tau: float = tau
         self.fc1 = torch.nn.Linear(num_hidden, num_proj_hidden)
         self.fc2 = torch.nn.Linear(num_proj_hidden, num_hidden)
         
 
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
-        #if self.use_ub:
-        mu, logvar = self.encoder(x, edge_index)
-        z = self.reparameterize(mu, logvar)
-        return z, mu, logvar
-        #else:
-            #return self.encoder(x, edge_index)
+        if self.use_ub:
+            mu, logvar = self.encoder(x, edge_index)
+            z = self.reparameterize(mu, logvar)
+            return z, mu, logvar
+        else:
+            return self.encoder(x, edge_index)
             
     def projection(self, z: torch.Tensor) -> torch.Tensor:
         z = F.elu(self.fc1(z))

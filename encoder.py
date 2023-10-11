@@ -34,7 +34,8 @@ class Encoder(torch.nn.Module):
 
 # from torch_sparse import SparseTensor
 # model = GCNConv(1,5)
-# a=torch.Tensor([[0.9],[0.8],[0.6]])
-# b=SparseTensor.from_dense(torch.Tensor([[0,1,1],[0,0,1],[0,0,0]]))
+# a=torch.Tensor([[0.9],[0.8],[0.6]]).cuda(0)
+# b=SparseTensor.from_dense(torch.Tensor([[0,1,1],[0,0,1],[0,0,0]])).cuda(0)
 # print(model(a,b))
+
 

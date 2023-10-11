@@ -1,5 +1,6 @@
 import argparse
 import time
+import copy
 import os.path as osp
 import random
 import warnings
@@ -8,8 +9,11 @@ import yaml
 from yaml import SafeLoader
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.utils import dropout_adj as random_dropout_adj
+from torch_geometric.utils import subgraph
+import torch_sparse 
+
+from torch.utils.tensorboard import SummaryWriter
 
 from encoder import Encoder
 from discriminator import Discriminator
@@ -18,11 +22,21 @@ from eval import label_classification_cv, mean_classifier
 from utils import ProgressMeter, AverageMeter, EarlyStopping, get_dataset, set_requires_grad, setup_seed, get_activation
 
 
+
 def train(dis: Discriminator, gen:Generator, mi_estimator, optimizer_d, optimizer_g, optimizer_mi,
             x, sp_adj, gen_enable, dis_ub=False, gen_ub=False,
             drop_edge_rate=0, drop_feature_rate=0, device=None):
     
-    
+    # print("======Start======")
+
+    #nodes_to_extract = [i for i in range(data.x.shape[0])]
+    nodes_to_extract = random.sample(range(x.shape[0]), 1000)
+    sp_adj = subgraph(nodes_to_extract, sp_adj, relabel_nodes=True)[0]
+    x = x[nodes_to_extract]
+    # print(x, x.shape)
+    # print(sp_adj)
+    sp_adj = torch_sparse.SparseTensor.from_edge_index(sp_adj, sparse_sizes=(x.shape[0],x.shape[0]))
+
     dis.train()
     if gen_enable:
         gen.train()
@@ -35,18 +49,15 @@ def train(dis: Discriminator, gen:Generator, mi_estimator, optimizer_d, optimize
         
         '''gen random view'''
         rdm_feature_2 = random_drop_feature(x, drop_feature_rate[1])
-        #print('rdm_feature_2',rdm_feature_2.sum())
+        # print('rdm_feature_2',rdm_feature_2.sum())
         rdm_edge_index_2 = random_dropout_adj(torch.nonzero(sp_adj.to_dense()).t(), p=drop_edge_rate[1])[0]
-        #print('rdm_edge_index_2',rdm_edge_index_2.shape)
-        
+        # print('rdm_edge_index_2',rdm_edge_index_2.shape)
         
         '''views into dis'''
-        # if dis_ub:
         h1, mu1, logvar1 = dis(aug_feature_1.to(device[1]), aug_sp_adj_1.to(device[1]))
         h2, mu2, logvar2 = dis(rdm_feature_2.to(device[1]), rdm_edge_index_2.to(device[1]))
         z1 ,zmu1 = dis.projection(h1), dis.projection(mu1)
         z2 ,zmu2 = dis.projection(h2), dis.projection(mu2)
-
 
         '''gen backwards'''
         set_requires_grad([dis], False)  # Ds require no gradients when optimizing Gs
@@ -56,7 +67,6 @@ def train(dis: Discriminator, gen:Generator, mi_estimator, optimizer_d, optimize
             loss_g = mi_estimator(zmu1.to(device[0]), zmu2.to(device[0]))
         else:
             loss_g = gen.loss(mu=mu1.to(device[0]), logvar=logvar1.to(device[0]))
-            #print("loss_g",loss_g)
         loss_g.backward(retain_graph=True)
 
         '''mi training'''
@@ -100,7 +110,6 @@ def train(dis: Discriminator, gen:Generator, mi_estimator, optimizer_d, optimize
             loss = dis.loss(z1=z1, z2=z2, zmu1=zmu1, zmu2=zmu2, mu1=mu1, logvar1=logvar1, mu2=mu2, logvar2=logvar2, mean=True)
 
         else:
-            #print('not use gen & not use ub')
             h1 = dis(rdm_feature_1.to(device[1]), rdm_edge_index_1.to(device[1]))
             h2 = dis(rdm_feature_2.to(device[1]), rdm_edge_index_2.to(device[1]))
 
@@ -127,12 +136,12 @@ def main():
     warnings.filterwarnings("ignore")
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, 
-                        choices=['Cora', 'CiteSeer', 'PubMed', 'AmazonCom','AmazonPhoto','CoauthorCS','Coauthorphy','WikiCS'],
+                        choices=['Cora', 'CiteSeer', 'PubMed', 'AmazonCom','AmazonPhoto','CoauthorCS','Coauthorphy','WikiCS','ogbn-arxiv'],
                         default='Cora') 
-    parser.add_argument('--gpu', type=list, default=[0,0])
+    parser.add_argument('--gpu', nargs='+', default=[0,0])
     parser.add_argument('--config', type=str, default='config.yaml')
     parser.add_argument('--resume_path', type=str, default='')
-    parser.add_argument('--save_path', type=str, default='./log/Cora')
+    parser.add_argument('--save_path', type=str, default='./log/')
     parser.add_argument('--earlystop_round', type=int, default=50000)
     parser.add_argument('--if_resume', type=bool, default=False)
     parser.add_argument('--if_save', type=bool, default=True)
@@ -146,7 +155,7 @@ def main():
     else:
         device = [torch.device("cpu"),torch.device("cpu")]
         print("Using CPU for training")
-    device = [torch.device("cpu"),torch.device('cpu')]
+    #device = [torch.device("cpu"),torch.device('cpu')]
 
     '''define hyperparam'''
     config = yaml.load(open(args.config), Loader=SafeLoader)[args.dataset]
@@ -167,24 +176,50 @@ def main():
     
 
     '''define datasets'''
-    dataset = get_dataset('./datasets', args.dataset, args.noise_rate, if_noise = True)
+    dataset = get_dataset('./datasets', args.dataset, args.noise_rate, if_noise = False)
     data = dataset[0]
-    #print(data.x.sum())
-    #print(data.adj_t)
-    data_eval = data
+    print(data.x.sum())
+    print(data.edge_index)
+    data_eval = copy.deepcopy(data)
+    data_eval.adj_t = torch_sparse.SparseTensor.from_edge_index(data_eval.edge_index, sparse_sizes=(data_eval.x.shape[0],data_eval.x.shape[0]))
+
+
+    # # nodes_to_extract 是你希望抽取的节点 ID 列表
+    # #nodes_to_extract = [i for i in range(data.x.shape[0])]
+    # nodes_to_extract = random.sample(range(data.x.shape[0]), 1000)
+
+    # # 使用 subgraph 方法来抽取子图
+    # data.edge_index = subgraph(nodes_to_extract, data.edge_index, relabel_nodes=True)[0]
     
+    # data.x = data.x[nodes_to_extract]
+    # data.y = data.y[nodes_to_extract]
+
+    # print(data.x, data.x.shape)
+    # print(data.edge_index)
+    # print('asasasasa',data_eval.x.shape)
+
+    # data.adj_t = torch_sparse.SparseTensor.from_edge_index(data.edge_index, sparse_sizes=(data.x.shape[0],data.x.shape[0]))
+
+    # print('aaaax',data.adj_t)
 
     '''define encoder'''
+    dis_ub=None
     if gen_in_epoch:
         encoder_g = Encoder(dataset.num_features, num_hidden, activation,
                       base_model=base_model,use_ub = False).to(device[0])
+        dis_ub=True
+    elif dis_lambda:
+        dis_ub=True
+    else:
+        dis_ub=False
     encoder_d = Encoder(dataset.num_features, num_hidden, activation,
-                      base_model=base_model, use_ub = True).to(device[1])
+                      base_model=base_model, use_ub = dis_ub).to(device[1])
 
     '''define gen and dis'''
     if gen_in_epoch :
         gen_model = Generator(encoder=encoder_g, hidden_dim=num_hidden).to(device[0])
-    dis_model = Discriminator(encoder=encoder_d, num_hidden=num_hidden, num_proj_hidden=num_proj_hidden, tau=tau, dis_lambda = dis_lambda).to(device[1])
+    dis_model = Discriminator(encoder=encoder_d, num_hidden=num_hidden, num_proj_hidden=num_proj_hidden, tau=tau, dis_lambda = dis_lambda, dis_ub = dis_ub).to(device[1])
+
 
     '''define optimizer''' 
     if gen_in_epoch:
@@ -262,15 +297,17 @@ def main():
         loss_g, loss_d,  edge_rate,  aug_edge = train(
             dis_model, gen_model if gen_in_epoch else None, mi_estimator if (gen_in_epoch and gen_ub) else None,
             optimizer_d, optimizer_g if gen_in_epoch else None, optimizer_mi if (gen_in_epoch and gen_ub) else None,
-            data.x, data.adj_t, 
+            data.x, data.edge_index, 
             gen_enable = gen_in_epoch, #False if ((epoch < gen_in_epoch) or (gen_in_epoch is False)) else True, 
-            dis_ub = True if dis_lambda else False,
+            dis_ub = dis_ub, #True if dis_lambda else False,
             gen_ub = gen_ub,
             drop_edge_rate=drop_edge_rate,
             drop_feature_rate=drop_feature_rate,
             device=device) 
         if epoch % 50 == 0:
+            print("start eval...")
             eval_mean, eval_std = test(dis_model, data_eval.to(device[1]))
+            #eval_mean, eval_std = np.array([0,0]), np.array([0,0])
 
         '''update meters'''
         now = t()

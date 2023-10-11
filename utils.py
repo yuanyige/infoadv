@@ -5,6 +5,7 @@ from torch_geometric.datasets import Planetoid, CitationFull, Amazon, WikiCS, Co
 import torch_geometric.transforms as T
 import torch.nn.functional as F
 from torch_sparse import SparseTensor
+from ogb.nodeproppred import PygNodePropPredDataset
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -94,32 +95,37 @@ class AddAdjNoise(object):
 
 def get_dataset(path, name, noise_rate=0, if_noise =False):
     print("Using dataset {}".format(name))
-    assert name in ['Cora', 'CiteSeer', 'PubMed', 'DBLP','AmazonCom','AmazonPhoto','Reddit' ,'CoauthorCS','Coauthorphy','WikiCS']
+    assert name in ['Cora', 'CiteSeer', 'PubMed', 'DBLP','AmazonCom','AmazonPhoto','Reddit' ,'CoauthorCS','Coauthorphy','WikiCS','ogbn-arxiv']
+
 
     if name in ['Cora', 'CiteSeer', 'PubMed', 'DBLP']:
         name = 'dblp' if name == 'DBLP' else name
         return (CitationFull if name == 'dblp' else Planetoid)(
             root=path,
             name=name,
-            transform= T.Compose([T.NormalizeFeatures(),T.ToSparseTensor()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
+            transform= T.Compose([T.NormalizeFeatures()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
+
+    elif name in ['ogbn-arxiv']:
+        return PygNodePropPredDataset(root=path,name=name,transform=T.Compose([T.NormalizeFeatures()]))
+
 
     elif name in['AmazonCom','AmazonPhoto']:
         return Amazon(
             root=path,
             name='Computers' if name=='AmazonCom' else 'Photo',
-            transform= T.Compose([T.NormalizeFeatures(),T.ToSparseTensor()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
+            transform= T.Compose([T.NormalizeFeatures()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
 
 
 
     elif name == 'WikiCS':
-        return WikiCS(root=path+'/WikiCS', transform=T.Compose([T.NormalizeFeatures(),T.ToSparseTensor()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
+        return WikiCS(root=path+'/WikiCS', transform=T.Compose([T.NormalizeFeatures()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
 
 
     elif name in ['CoauthorCS','Coauthorphy']:
         return Coauthor(
             root=path,
             name='CS' if name=='CoauthorCS' else 'Physics',
-            transform= T.Compose([T.NormalizeFeatures(),T.ToSparseTensor()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
+            transform= T.Compose([T.NormalizeFeatures()]) if not if_noise else T.Compose([AddFeatureNoise(noise_rate),T.NormalizeFeatures(),T.ToSparseTensor(),AddAdjNoise(noise_rate)]))
 
 
 def setup_seed(seed):
