@@ -6,6 +6,8 @@ import torch_geometric.transforms as T
 import torch.nn.functional as F
 from torch_sparse import SparseTensor
 from ogb.nodeproppred import PygNodePropPredDataset
+import logging
+import os
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -230,3 +232,26 @@ class EarlyStopping:
 
         #self.val_acc_max = val_acc
 
+
+def get_logger(save_dir):
+    # Assuming datadir is your directory path
+
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Create a logger object
+    logger = logging.getLogger(__name__)
+
+    # Set the level of logger to INFO 
+    logger.setLevel(logging.INFO)
+
+    # Create file handler which logs even info messages
+    fh = logging.FileHandler(os.path.join(save_dir, 'logfile.log'))
+
+    # Create a formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+
+    # Add the handlers to the logger
+    logger.addHandler(fh)
+    
+    return logger

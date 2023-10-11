@@ -19,7 +19,7 @@ from encoder import Encoder
 from discriminator import Discriminator
 from generator import Generator, CLUB, random_drop_feature
 from eval import label_classification_cv, mean_classifier
-from utils import ProgressMeter, AverageMeter, EarlyStopping, get_dataset, set_requires_grad, setup_seed, get_activation
+from utils import ProgressMeter, AverageMeter, EarlyStopping, get_dataset, set_requires_grad, setup_seed, get_activation, get_logger
 
 
 
@@ -28,13 +28,12 @@ def train(dis: Discriminator, gen:Generator, mi_estimator, optimizer_d, optimize
             drop_edge_rate=0, drop_feature_rate=0, device=None):
     
     # print("======Start======")
-
     #nodes_to_extract = [i for i in range(data.x.shape[0])]
-    nodes_to_extract = random.sample(range(x.shape[0]), 1000)
+    nodes_to_extract = random.sample(range(x.shape[0]), 10000)
     sp_adj = subgraph(nodes_to_extract, sp_adj, relabel_nodes=True)[0]
     x = x[nodes_to_extract]
-    # print(x, x.shape)
-    # print(sp_adj)
+    print('sample x', x.shape)
+    print('sample adj', sp_adj.shape)
     sp_adj = torch_sparse.SparseTensor.from_edge_index(sp_adj, sparse_sizes=(x.shape[0],x.shape[0]))
 
     dis.train()
@@ -155,7 +154,7 @@ def main():
     else:
         device = [torch.device("cpu"),torch.device("cpu")]
         print("Using CPU for training")
-    #device = [torch.device("cpu"),torch.device('cpu')]
+    #device = [torch.device("cuda:0"),torch.device('cuda:5')]
 
     '''define hyperparam'''
     config = yaml.load(open(args.config), Loader=SafeLoader)[args.dataset]
@@ -245,19 +244,19 @@ def main():
             drop_edge_rate: {arg_list[3]}'''.format(
             arg_list=model_name.split('_')))
     else:
-        model_name=f"{(gen_ub,dis_lambda)}_{args.noise_rate}_{gen_in_epoch}_{drop_feature_rate}_{drop_edge_rate}_{train_time}"
+        model_name=f"{(gen_in_epoch,dis_lambda)}_{args.noise_rate}_{drop_feature_rate}_{drop_edge_rate}_{train_time}"
         print('''Model discription
-            eta_lambda: {arg_list[0]}
-            noise_rate: {arg_list[1]}
-            gen_in_epoch: {arg_list[2]}
-            drop_feature_rate: {arg_list[3]}
-            drop_edge_rate: {arg_list[4]}'''.format(
+            use gen & dis lambda: {arg_list[0]}
+            noise_rate: {arg_list[1]} 
+            drop_feature_rate: {arg_list[2]}
+            drop_edge_rate: {arg_list[3]}'''.format(
             arg_list=model_name.split('_')))
     
     '''define Tensorboard'''
     if args.if_save:
         log_dir=osp.join(args.save_path,model_name)
         writer = SummaryWriter(log_dir)
+        logger = get_logger(log_dir)
     else:
         writer=None
     
@@ -307,7 +306,6 @@ def main():
         if epoch % 50 == 0:
             print("start eval...")
             eval_mean, eval_std = test(dis_model, data_eval.to(device[1]))
-            #eval_mean, eval_std = np.array([0,0]), np.array([0,0])
 
         '''update meters'''
         now = t()
@@ -321,7 +319,7 @@ def main():
         
         '''print ang plot'''
         progress_train.display(epoch)
-        print('Eval | F1mi={:.4f}+-{:.4f}, F1ma={:.4f}+-{:.4f}'.format(eval_mean[0], eval_std[0], eval_mean[1], eval_std[1]))
+        logger.info('Eval | F1mi={:.4f}+-{:.4f}, F1ma={:.4f}+-{:.4f}'.format(eval_mean[0], eval_std[0], eval_mean[1], eval_std[1]))
         if writer is not None:
             writer.add_scalar('train/loss/loss_d', loss_d_meter.val, epoch)
             writer.add_scalar('train/loss/loss_g', loss_g_meter.val, epoch)
@@ -334,8 +332,8 @@ def main():
         '''earlystopping saving'''
         early_stopping(eval_mean[0], epoch, model=(dis_model, gen_model if gen_in_epoch else None), view=aug_edge)
         if early_stopping.early_stop:
-            print("==> Early stopping...")
-            print("Best downstream score in epoch {}, is {}".format(early_stopping.best_epoch,early_stopping.best_score))
+            logger.info("==> Early stopping...")
+            logger.info("Best downstream score in epoch {}, is {}".format(early_stopping.best_epoch,early_stopping.best_score))
             break
         
         '''regular saving'''

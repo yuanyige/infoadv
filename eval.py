@@ -36,7 +36,7 @@ def trans_emb_y(embeddings:torch.Tensor, y):
 def label_classification_cv(embeddings, y, ratio):
     X, Y = trans_emb_y(embeddings, y)
     ret = []
-    for i in range(1):#Cora10 3
+    for i in range(2):#Cora10 3
         X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=1 - ratio, random_state = i+1)
         #print(X_train.shape,X_test.shape,y_train.shape,y_test.shape)
         logreg = LogisticRegression(solver='liblinear')
